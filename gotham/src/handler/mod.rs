@@ -12,6 +12,7 @@ use hyper::Response;
 use state::State;
 
 mod error;
+pub mod static_file;
 
 pub use self::error::{HandlerError, IntoHandlerError};
 
