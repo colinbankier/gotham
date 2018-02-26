@@ -9,6 +9,13 @@ use router::route::matcher::RouteMatcher;
 use router::route::dispatch::DispatcherImpl;
 use handler::{Handler, NewHandler};
 
+// Temporary
+use state::State;
+use hyper::{Response, StatusCode};
+use http::response::create_response;
+use mime;
+use handler::static_file::StaticFileHandler;
+
 /// Describes the API for defining a single route, after determining which request paths will be
 /// dispatched here. The API here uses chained function calls to build and add the route into the
 /// `RouterBuilder` which created it.
@@ -101,6 +108,8 @@ pub trait DefineSingleRoute {
     fn to<H>(self, handler: H)
     where
         H: Handler + RefUnwindSafe + Copy + Send + Sync + 'static;
+
+    fn to_filesystem(self, path: &'static str);
 
     /// Directs the route to the given `NewHandler`. This gives more control over how `Handler`
     /// values are constructed.
@@ -319,6 +328,10 @@ where
         H: Handler + RefUnwindSafe + Copy + Send + Sync + 'static,
     {
         self.to_new_handler(move || Ok(handler))
+    }
+
+    fn to_filesystem(self, path: &'static str) {
+        self.to_new_handler(move || Ok(StaticFileHandler::new(path)))
     }
 
     fn to_new_handler<NH>(self, new_handler: NH)
