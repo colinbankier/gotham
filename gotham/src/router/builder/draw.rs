@@ -6,6 +6,7 @@ use hyper::Method;
 use pipeline::chain::PipelineHandleChain;
 use pipeline::set::PipelineSet;
 use router::route::matcher::MethodOnlyRouteMatcher;
+use router::route::matcher::any::AnyRouteMatcher;
 use extractor::{NoopPathExtractor, NoopQueryStringExtractor};
 use router::builder::{AssociatedRouteBuilder, DelegateRouteBuilder, RouterBuilder, ScopeBuilder,
                       SingleRouteBuilder};
@@ -397,6 +398,37 @@ where
         let node_builder = descend(node_builder, path);
 
         let matcher = MethodOnlyRouteMatcher::new(methods);
+
+        SingleRouteBuilder {
+            matcher,
+            node_builder,
+            pipeline_chain: *pipeline_chain,
+            pipelines: pipelines.clone(),
+            phantom: PhantomData,
+        }
+    }
+
+    // A failed experiment.
+    fn assets<'b>(
+        &'b mut self,
+        path: &str,
+    ) -> SingleRouteBuilder<'b, AnyRouteMatcher, C, P, NoopPathExtractor, NoopQueryStringExtractor>
+    {
+        let (node_builder, pipeline_chain, pipelines) = self.component_refs();
+        // let node_builder = descend(node_builder, path);
+
+        let path = if path.starts_with("/") {
+            &path[1..]
+        } else {
+            path
+        };
+
+        let node_builder = build_subtree(node_builder, path.split("/"));
+        // let mut child_node = NodeBuilder::new(path, SegmentType::Static);
+        // child_node.add_child(NodeBuilder::new("*", SegmentType::Glob));
+        // node_builder.add_child(child_node);
+
+        let matcher = AnyRouteMatcher::new();
 
         SingleRouteBuilder {
             matcher,

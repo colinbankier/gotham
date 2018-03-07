@@ -331,7 +331,9 @@ where
     }
 
     fn to_filesystem(self, path: &'static str) {
-        self.to_new_handler(move || Ok(StaticFileHandler::new(path)))
+        let uri_prefix: String = self.node_builder.segment().to_string();
+        let handler = StaticFileHandler::new(uri_prefix, path);
+        self.to_new_handler(handler)
     }
 
     fn to_new_handler<NH>(self, new_handler: NH)
