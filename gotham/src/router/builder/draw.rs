@@ -423,10 +423,14 @@ where
             path
         };
 
-        let node_builder = build_subtree(node_builder, path.split("/"));
+        debug!("Drawing assets for {:?}", path);
+        let mut node_builder = build_subtree(node_builder, path.split("/"));
         // let mut child_node = NodeBuilder::new(path, SegmentType::Static);
-        // child_node.add_child(NodeBuilder::new("*", SegmentType::Glob));
+        node_builder.add_child(NodeBuilder::new("*", SegmentType::Glob));
         // node_builder.add_child(child_node);
+
+                // let child_node = NodeBuilder::new(segment, segment_type.clone());
+                // node.add_child(node_builder);
 
         let matcher = AnyRouteMatcher::new();
 
