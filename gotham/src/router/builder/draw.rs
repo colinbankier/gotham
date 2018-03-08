@@ -415,7 +415,6 @@ where
     ) -> SingleRouteBuilder<'b, AnyRouteMatcher, C, P, NoopPathExtractor, NoopQueryStringExtractor>
     {
         let (node_builder, pipeline_chain, pipelines) = self.component_refs();
-        // let node_builder = descend(node_builder, path);
 
         let path = if path.starts_with("/") {
             &path[1..]
@@ -424,14 +423,11 @@ where
         };
 
         debug!("Drawing assets for {:?}", path);
-        let mut node_builder = build_subtree(node_builder, path.split("/"));
-        // let mut child_node = NodeBuilder::new(path, SegmentType::Static);
-        node_builder.add_child(NodeBuilder::new("*", SegmentType::Glob));
-        // node_builder.add_child(child_node);
-
-                // let child_node = NodeBuilder::new(segment, segment_type.clone());
-                // node.add_child(node_builder);
-
+        let mut node = build_subtree(node_builder, path.split("/"));
+        let child = NodeBuilder::new("*", SegmentType::Glob);
+        node.add_child(child);
+        
+        let node_builder = node.borrow_mut_child("*", SegmentType::Glob).unwrap();
         let matcher = AnyRouteMatcher::new();
 
         SingleRouteBuilder {
