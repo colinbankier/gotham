@@ -12,11 +12,11 @@ use hyper::Uri;
 #[derive(Clone, Debug)]
 pub struct StaticFileHandler {
     path: &'static str,
-    uri_prefix: String,
+    uri_prefix: &'static str,
 }
 
 impl StaticFileHandler {
-    pub fn new(uri_prefix: String, path: &'static str) -> StaticFileHandler {
+    pub fn new(uri_prefix: &'static str, path: &'static str) -> StaticFileHandler {
         StaticFileHandler {
             uri_prefix: uri_prefix,
             path: path,

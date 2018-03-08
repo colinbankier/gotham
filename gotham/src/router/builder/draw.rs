@@ -13,6 +13,10 @@ use router::builder::{AssociatedRouteBuilder, DelegateRouteBuilder, RouterBuilde
 use router::tree::node::{NodeBuilder, SegmentType};
 use router::tree::regex::ConstrainedSegmentRegex;
 
+// Temporary
+use handler::static_file::StaticFileHandler;
+use router::builder::single::DefineSingleRoute;
+
 /// The default type returned when building a single route. See
 /// `router::builder::DefineSingleRoute` for an overview of the ways that a route can be specified.
 pub type DefaultSingleRouteBuilder<'a, C, P> = SingleRouteBuilder<
@@ -408,12 +412,11 @@ where
         }
     }
 
-    // A failed experiment.
-    fn assets<'b>(
+    fn to_filesystem<'b>(
         &'b mut self,
-        path: &str,
-    ) -> SingleRouteBuilder<'b, AnyRouteMatcher, C, P, NoopPathExtractor, NoopQueryStringExtractor>
-    {
+        path: &'static str,
+        filesystem_path: &'static str
+    ) {
         let (node_builder, pipeline_chain, pipelines) = self.component_refs();
 
         let path = if path.starts_with("/") {
@@ -430,14 +433,18 @@ where
         let node_builder = node.borrow_mut_child("*", SegmentType::Glob).unwrap();
         let matcher = AnyRouteMatcher::new();
 
-        SingleRouteBuilder {
+        let route_builder : SingleRouteBuilder<'b, AnyRouteMatcher, C, P, NoopPathExtractor, NoopQueryStringExtractor> = SingleRouteBuilder {
             matcher,
             node_builder,
             pipeline_chain: *pipeline_chain,
             pipelines: pipelines.clone(),
             phantom: PhantomData,
-        }
+        };
+
+        let handler = StaticFileHandler::new(path, filesystem_path);
+        route_builder.to_new_handler(handler)
     }
+
 
     /// Begins defining a new scope, based on a given `path` prefix.
     ///

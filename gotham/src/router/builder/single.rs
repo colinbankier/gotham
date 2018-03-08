@@ -109,8 +109,6 @@ pub trait DefineSingleRoute {
     where
         H: Handler + RefUnwindSafe + Copy + Send + Sync + 'static;
 
-    fn to_filesystem(self, path: &'static str);
-
     /// Directs the route to the given `NewHandler`. This gives more control over how `Handler`
     /// values are constructed.
     ///
@@ -328,12 +326,6 @@ where
         H: Handler + RefUnwindSafe + Copy + Send + Sync + 'static,
     {
         self.to_new_handler(move || Ok(handler))
-    }
-
-    fn to_filesystem(self, path: &'static str) {
-        let uri_prefix: String = self.node_builder.segment().to_string();
-        let handler = StaticFileHandler::new(uri_prefix, path);
-        self.to_new_handler(handler)
     }
 
     fn to_new_handler<NH>(self, new_handler: NH)
