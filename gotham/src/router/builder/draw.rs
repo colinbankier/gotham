@@ -412,6 +412,8 @@ where
         }
     }
 
+    /// Add docs here
+    /// 
     fn to_filesystem<'b>(
         &'b mut self,
         path: &'static str,

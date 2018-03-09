@@ -6,6 +6,7 @@ use futures::future;
 use mime;
 use std::env::current_dir;
 use std::io;
+use std::path::{Component, PathBuf, Path};
 
 use hyper::Uri;
 
@@ -38,14 +39,19 @@ impl NewHandler for StaticFileHandler {
 impl Handler for StaticFileHandler {
     fn handle(self, state: State) -> Box<HandlerFuture> {
         let response = {
-            let uri = state.try_borrow::<Uri>();
+            let uri = state.try_borrow::<Uri>().unwrap();
+            let req_path = Path::new(uri.path());
+            let mut path = PathBuf::from(self.path);
+            path.extend(&normalize_path(req_path).strip_prefix(self.uri_prefix));
+
             let wd = current_dir().unwrap();
             trace!("{:?}", wd);
 
+
             let body = format!(
-                "Got {:?} from uri {}, cwd {:?}",
+                "Got {:?}, serving {:?} from cwd {:?}",
                 self,
-                String::from(uri.unwrap().path()),
+                path,
                 wd
             );
 
@@ -57,4 +63,20 @@ impl Handler for StaticFileHandler {
         };
         Box::new(future::ok((state, response)))
     }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.components().fold(PathBuf::new(), |mut result, p| {
+        match p {
+            Component::Normal(x) => {
+                result.push(x);
+                result
+            }
+            Component::ParentDir => {
+                result.pop();
+                result
+            },
+            _ => result
+        }
+    })
 }
