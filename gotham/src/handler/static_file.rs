@@ -1,11 +1,11 @@
 use handler::{Handler, HandlerFuture, NewHandler};
 use state::State;
-use hyper::StatusCode;
+use hyper::{Response, StatusCode};
 use http::response::create_response;
 use futures::future;
 use mime;
-use std::env::current_dir;
-use std::io;
+use std::io::{self, Read};
+use std::fs::File;
 use std::path::{Component, PathBuf, Path};
 use url::percent_encoding::percent_decode;
 
@@ -47,25 +47,40 @@ impl Handler for StaticFileHandler {
             let mut path = PathBuf::from(self.path);
             path.extend(&normalize_path(req_path).strip_prefix(self.uri_prefix));
 
-            let wd = current_dir().unwrap();
-            trace!("{:?}", wd);
+            match path.metadata() {
+                Ok(meta) => {
+                    match File::open(path) {
+                        Ok(mut file) => {
+                            let mut contents: Vec<u8> = Vec::with_capacity(meta.len() as usize);
+                            file.read_to_end(&mut contents);
+                            create_response(
+                                &state,
+                                StatusCode::Ok,
+                                Some((contents, mime::TEXT_PLAIN)),
+                            )
+                        },
+                        Err(e) => error_response(&state, e)
+                    }
 
-
-            let body = format!(
-                "Got {:?}, serving {:?} from cwd {:?}",
-                self,
-                path,
-                wd
-            );
-
-            create_response(
-                &state,
-                StatusCode::Ok,
-                Some((body.into_bytes(), mime::TEXT_PLAIN)),
-            )
+                },
+                Err(e) => error_response(&state, e),
+            }
         };
         Box::new(future::ok((state, response)))
     }
+}
+
+fn error_response(state: &State, e: io::Error) -> Response {
+                    let status = match e.kind() {
+                        io::ErrorKind::NotFound => StatusCode::NotFound,
+                        io::ErrorKind::PermissionDenied => StatusCode::Forbidden,
+                        _ => StatusCode::InternalServerError,
+                    };
+                    create_response(
+                        &state,
+                        status,
+                        Some((format!("{}", status).into_bytes(), mime::TEXT_PLAIN)),
+                    )
 }
 
 fn normalize_path(path: &Path) -> PathBuf {

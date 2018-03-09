@@ -36,7 +36,7 @@ fn router() -> Router {
     build_simple_router(|route| {
         // For the path "/" invoke the handler "say_hello"
         route.get("/").to(say_hello);
-        route.to_filesystem("/static", "foo");
+        route.to_filesystem("/static", "assets");
     })
 }
 
