@@ -7,6 +7,8 @@ use mime;
 use std::env::current_dir;
 use std::io;
 use std::path::{Component, PathBuf, Path};
+use url::percent_encoding::percent_decode;
+
 
 use hyper::Uri;
 
@@ -40,7 +42,8 @@ impl Handler for StaticFileHandler {
     fn handle(self, state: State) -> Box<HandlerFuture> {
         let response = {
             let uri = state.try_borrow::<Uri>().unwrap();
-            let req_path = Path::new(uri.path());
+            let decoded_path = percent_decode(uri.path().as_bytes()).decode_utf8().unwrap().into_owned();
+            let req_path = Path::new(&decoded_path);
             let mut path = PathBuf::from(self.path);
             path.extend(&normalize_path(req_path).strip_prefix(self.uri_prefix));
 
