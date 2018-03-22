@@ -1,9 +1,11 @@
 use handler::{Handler, HandlerFuture, NewHandler};
 use state::State;
 use hyper::{Response, StatusCode};
+use mime::Mime;
 use http::response::create_response;
 use futures::future;
 use mime;
+use mime_guess::guess_mime_type_opt;
 use std::io::{self, Read};
 use std::fs::File;
 use std::path::{Component, PathBuf, Path};
@@ -49,15 +51,17 @@ impl Handler for StaticFileHandler {
 
             match path.metadata() {
                 Ok(meta) => {
-                    match File::open(path) {
+                    match File::open(&path) {
                         Ok(mut file) => {
                             let mut contents: Vec<u8> = Vec::with_capacity(meta.len() as usize);
-                            file.read_to_end(&mut contents);
-                            create_response(
-                                &state,
-                                StatusCode::Ok,
-                                Some((contents, mime::TEXT_PLAIN)),
-                            )
+                            match file.read_to_end(&mut contents) {
+                                Ok(_num_bytes) => create_response(
+                                    &state,
+                                    StatusCode::Ok,
+                                    Some((contents, mime_for_path(&path))),
+                                ),
+                                Err(e) => error_response(&state, e)
+                            }
                         },
                         Err(e) => error_response(&state, e)
                     }
@@ -68,6 +72,11 @@ impl Handler for StaticFileHandler {
         };
         Box::new(future::ok((state, response)))
     }
+}
+
+fn mime_for_path(path: &Path) -> Mime {
+    guess_mime_type_opt(path)
+        .unwrap_or_else(|| mime::TEXT_PLAIN)
 }
 
 fn error_response(state: &State, e: io::Error) -> Response {
