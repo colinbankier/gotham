@@ -13,6 +13,7 @@ use router::route::{Delegation, Extractors, RouteImpl};
 
 // Temporary
 use handler::static_file::StaticFileHandler;
+use handler::static_file::{FileHandler, FilePathExtractor, FileSystemHandler};
 use handler::static_file::{FilePathExtractor, StaticFileHandler};
 use handler::{Handler, NewHandler};
 use http::response::create_response;
@@ -177,7 +178,7 @@ pub trait DefineSingleRoute {
     where
         NH: NewHandler + 'static;
 
-    fn to_filesystem(self, static_file_handler: StaticFileHandler)
+    fn to_filesystem(self, static_file_handler: FileSystemHandler)
     where
         Self: Sized,
         Self: ReplacePathExtractor<FilePathExtractor>,
@@ -185,6 +186,13 @@ pub trait DefineSingleRoute {
     {
         self.with_path_extractor::<FilePathExtractor>()
             .to_new_handler(static_file_handler);
+    }
+
+    fn to_file(self, static_file_handler: FileHandler)
+    where
+        Self: Sized,
+    {
+        self.to_new_handler(static_file_handler);
     }
 
     /// Applies a `PathExtractor` type to the current route, to extract path parameters into
