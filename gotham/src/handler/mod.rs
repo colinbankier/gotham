@@ -11,6 +11,8 @@ use hyper::{Body, Response};
 use state::State;
 
 mod error;
+
+/// Defines handlers for serving static files.
 pub mod static_file;
 
 pub use self::error::{HandlerError, IntoHandlerError};
