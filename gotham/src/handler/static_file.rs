@@ -1,14 +1,14 @@
-use http::response::{create_response, extend_response};
-use router::response::extender::StaticResponseExtender;
-use state::{FromState, State, StateData};
+use helpers::http::response::{create_response, extend_response};
 use hyper;
 use mime::{self, Mime};
 use mime_guess::guess_mime_type_opt;
+use router::response::extender::StaticResponseExtender;
+use state::{FromState, State, StateData};
+use std::convert::From;
 use std::fs;
 use std::io::{self, Read};
-use std::path::{Component, Path, PathBuf};
 use std::iter::FromIterator;
-use std::convert::From;
+use std::path::{Component, Path, PathBuf};
 
 use futures::future;
 use handler::{Handler, HandlerFuture, NewHandler};
@@ -148,13 +148,13 @@ impl StaticResponseExtender for FilePathExtractor {
 
 #[cfg(test)]
 mod tests {
-    use test::TestServer;
+    use hyper::header::ContentType;
+    use hyper::StatusCode;
+    use mime;
     use router::builder::{build_simple_router, DefineSingleRoute, DrawRoutes};
     use router::Router;
-    use hyper::StatusCode;
-    use hyper::header::ContentType;
-    use mime;
     use std::str;
+    use test::TestServer;
 
     #[test]
     fn static_files_guesses_content_type() {
