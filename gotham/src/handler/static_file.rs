@@ -1,3 +1,5 @@
+use futures::{future, Future};
+use handler::{Handler, HandlerFuture, NewHandler};
 use helpers::http::response::{create_response, extend_response};
 use hyper;
 use mime::{self, Mime};
@@ -9,9 +11,10 @@ use std::fs;
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
+use tokio_fs;
+use tokio_io;
 
-use futures::future;
-use handler::{Handler, HandlerFuture, NewHandler};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
 /// Represents a handler for any files under the path `root`.
 #[derive(Clone)]
@@ -80,8 +83,9 @@ impl Handler for FileSystemHandler {
 
 impl Handler for FileHandler {
     fn handle(self, state: State) -> Box<HandlerFuture> {
-        let response = create_file_response(self.path, &state);
-        Box::new(future::ok((state, response)))
+        // let response = create_file_response(self.path, &state);
+        // Box::new(future::ok((state, response)))
+        simple_file_send(self.path, state)
     }
 }
 
@@ -97,6 +101,31 @@ fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
             create_response(state, hyper::StatusCode::Ok, Some((contents, mime_type)))
         })
         .unwrap_or_else(|err| error_response(state, err))
+}
+
+// type ResponseFuture = Box<Future<Item = Response<Body>, Error = io::Error> + Send>;
+
+fn simple_file_send(path: PathBuf, state: State) -> Box<HandlerFuture> {
+    // Serve a file by asynchronously reading it entirely into memory.
+    // Uses tokio_fs to open file asynchronously, then tokio_io to read into
+    // memory asynchronously.
+    Box::new(
+        tokio_fs::file::File::open(path)
+            .and_then(|file| {
+                let buf: Vec<u8> = Vec::new();
+                tokio_io::io::read_to_end(file, buf)
+                    .and_then(|item| Ok(hyper::Response::new(item.1.into())))
+                    .or_else(|_| {
+                        // Use builder
+                        let response = hyper::Response::new();
+                        response.set_body(Body::empty());
+                        response.set_status(hyper::StatusCode::InternalServerError);
+                        Ok(response)
+                    })
+            })
+            .map(|response| (state, response))
+            .or_else(|e| Ok((state, error_response(&state, e)))),
+    )
 }
 
 fn mime_for_path(path: &Path) -> Mime {

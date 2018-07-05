@@ -34,6 +34,8 @@ extern crate regex;
 extern crate serde;
 extern crate tokio;
 extern crate tokio_core;
+extern crate tokio_fs;
+extern crate tokio_io;
 extern crate url;
 extern crate uuid;
 
