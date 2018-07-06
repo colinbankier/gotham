@@ -110,17 +110,22 @@ fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
 fn simple_file_send(path: PathBuf, state: State) -> Box<HandlerFuture> {
     println!("Sending async file!");
     let mime_type = mime_for_path(&path);
-    let data_future = tokio_fs::file::File::open(path).and_then(|file| {
-        let buf: Vec<u8> = Vec::new();
-        tokio_io::io::read_to_end(file, buf).and_then(|item| Ok(item.1))
-    });
-    Box::new(data_future.then(move |result| match result {
-        Ok(data) => {
-            let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
-            Ok((state, res))
+    match path.metadata() {
+        Ok(meta) => {
+            let data_future = tokio_fs::file::File::open(path).and_then(move |file| {
+                let contents = Vec::with_capacity(meta.len() as usize);
+                tokio_io::io::read_to_end(file, contents).and_then(|item| Ok(item.1))
+            });
+            Box::new(data_future.then(move |result| match result {
+                Ok(data) => {
+                    let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
+                    Ok((state, res))
+                }
+                Err(err) => Err((state, err.into_handler_error())),
+            }))
         }
-        Err(err) => Err((state, err.into_handler_error())),
-    }))
+        Err(err) => Box::new(future::err((state, err.into_handler_error()))),
+    }
 }
 
 fn mime_for_path(path: &Path) -> Mime {
