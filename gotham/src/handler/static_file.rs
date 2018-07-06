@@ -104,59 +104,23 @@ fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
         .unwrap_or_else(|err| error_response(state, err))
 }
 
-// type ResponseFuture = Box<Future<Item = Response<Body>, Error = io::Error> + Send>;
-
+// Serve a file by asynchronously reading it entirely into memory.
+// Uses tokio_fs to open file asynchronously, then tokio_io to read into
+// memory asynchronously.
 fn simple_file_send(path: PathBuf, state: State) -> Box<HandlerFuture> {
-    // Serve a file by asynchronously reading it entirely into memory.
-    // Uses tokio_fs to open file asynchronously, then tokio_io to read into
-    // memory asynchronously.
     println!("Sending async file!");
     let mime_type = mime_for_path(&path);
     let data_future = tokio_fs::file::File::open(path).and_then(|file| {
         let buf: Vec<u8> = Vec::new();
-        tokio_io::io::read_to_end(file, buf).and_then(|item| {
-            let bytes: Vec<u8> = item.1;
-            // let response = create_response(
-            //     &state,
-            //     hyper::StatusCode::Ok,
-            //     Some((bytes, mime_type)),
-            // );
-            let response = hyper::Response::new().with_body(Body::from(bytes));
-            Ok(response)
-        })
+        tokio_io::io::read_to_end(file, buf).and_then(|item| Ok(item.1))
     });
-
     Box::new(data_future.then(move |result| match result {
-        Ok(res) => {
-            // let res = create_response(&state, StatusCode::Ok, Some((data, mime::TEXT_PLAIN)));
+        Ok(data) => {
+            let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
             Ok((state, res))
         }
         Err(err) => Err((state, err.into_handler_error())),
     }))
-    // Box::new(
-    //     data_future
-    //         .then(move |result| {
-    //             match result {
-    //                 Ok(data) =>
-    //             }
-    //             // llet bbb: String = result;
-    //             Ok((state, result))
-    //         })
-    // )
-    // Ok((state, result))
-    // match result {
-    //         Ok(data) => Ok((state, data)),
-    //         Err(e) => Ok((state, e.into_handler_error())),
-    //     }))
-    // .map(|response| (state, response))
-    // .or_else(|e| Ok((state, error(e)))),
-}
-
-fn error(e: io::Error) -> hyper::Response {
-    let mut response = hyper::Response::new();
-    response.set_body(Body::empty());
-    response.set_status(hyper::StatusCode::InternalServerError);
-    response
 }
 
 fn mime_for_path(path: &Path) -> Mime {
