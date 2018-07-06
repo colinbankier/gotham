@@ -1,5 +1,5 @@
 use futures::{future, Future};
-use handler::{Handler, HandlerFuture, NewHandler};
+use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
 use hyper;
 use mime::{self, Mime};
@@ -11,6 +11,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
+use tokio::fs::File;
 use tokio_fs;
 use tokio_io;
 
@@ -109,23 +110,53 @@ fn simple_file_send(path: PathBuf, state: State) -> Box<HandlerFuture> {
     // Serve a file by asynchronously reading it entirely into memory.
     // Uses tokio_fs to open file asynchronously, then tokio_io to read into
     // memory asynchronously.
-    Box::new(
-        tokio_fs::file::File::open(path)
-            .and_then(|file| {
-                let buf: Vec<u8> = Vec::new();
-                tokio_io::io::read_to_end(file, buf)
-                    .and_then(|item| Ok(hyper::Response::new(item.1.into())))
-                    .or_else(|_| {
-                        // Use builder
-                        let response = hyper::Response::new();
-                        response.set_body(Body::empty());
-                        response.set_status(hyper::StatusCode::InternalServerError);
-                        Ok(response)
-                    })
-            })
-            .map(|response| (state, response))
-            .or_else(|e| Ok((state, error_response(&state, e)))),
-    )
+    println!("Sending async file!");
+    let mime_type = mime_for_path(&path);
+    let data_future = tokio_fs::file::File::open(path).and_then(|file| {
+        let buf: Vec<u8> = Vec::new();
+        tokio_io::io::read_to_end(file, buf).and_then(|item| {
+            let bytes: Vec<u8> = item.1;
+            // let response = create_response(
+            //     &state,
+            //     hyper::StatusCode::Ok,
+            //     Some((bytes, mime_type)),
+            // );
+            let response = hyper::Response::new().with_body(Body::from(bytes));
+            Ok(response)
+        })
+    });
+
+    Box::new(data_future.then(move |result| match result {
+        Ok(res) => {
+            // let res = create_response(&state, StatusCode::Ok, Some((data, mime::TEXT_PLAIN)));
+            Ok((state, res))
+        }
+        Err(err) => Err((state, err.into_handler_error())),
+    }))
+    // Box::new(
+    //     data_future
+    //         .then(move |result| {
+    //             match result {
+    //                 Ok(data) =>
+    //             }
+    //             // llet bbb: String = result;
+    //             Ok((state, result))
+    //         })
+    // )
+    // Ok((state, result))
+    // match result {
+    //         Ok(data) => Ok((state, data)),
+    //         Err(e) => Ok((state, e.into_handler_error())),
+    //     }))
+    // .map(|response| (state, response))
+    // .or_else(|e| Ok((state, error(e)))),
+}
+
+fn error(e: io::Error) -> hyper::Response {
+    let mut response = hyper::Response::new();
+    response.set_body(Body::empty());
+    response.set_status(hyper::StatusCode::InternalServerError);
+    response
 }
 
 fn mime_for_path(path: &Path) -> Mime {
