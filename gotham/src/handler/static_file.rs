@@ -77,37 +77,34 @@ impl Handler for FileSystemHandler {
             base_path.extend(&normalize_path(&file_path));
             base_path
         };
-        let response = create_file_response(path, &state);
-        Box::new(future::ok((state, response)))
+        create_file_response(path, state)
     }
 }
 
 impl Handler for FileHandler {
     fn handle(self, state: State) -> Box<HandlerFuture> {
-        // let response = create_file_response(self.path, &state);
-        // Box::new(future::ok((state, response)))
-        simple_file_send(self.path, state)
+        create_file_response(self.path, state)
     }
 }
 
-fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
-    path.metadata()
-        .and_then(|meta| {
-            let mut contents = Vec::with_capacity(meta.len() as usize);
-            fs::File::open(&path).and_then(|mut f| f.read_to_end(&mut contents))?;
-            Ok(contents)
-        })
-        .map(|contents| {
-            let mime_type = mime_for_path(&path);
-            create_response(state, hyper::StatusCode::Ok, Some((contents, mime_type)))
-        })
-        .unwrap_or_else(|err| error_response(state, err))
-}
+// fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
+//     path.metadata()
+//         .and_then(|meta| {
+//             let mut contents = Vec::with_capacity(meta.len() as usize);
+//             fs::File::open(&path).and_then(|mut f| f.read_to_end(&mut contents))?;
+//             Ok(contents)
+//         })
+//         .map(|contents| {
+//             let mime_type = mime_for_path(&path);
+//             create_response(state, hyper::StatusCode::Ok, Some((contents, mime_type)))
+//         })
+//         .unwrap_or_else(|err| error_response(state, err))
+// }
 
 // Serve a file by asynchronously reading it entirely into memory.
 // Uses tokio_fs to open file asynchronously, then tokio_io to read into
 // memory asynchronously.
-fn simple_file_send(path: PathBuf, state: State) -> Box<HandlerFuture> {
+fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     println!("Sending async file!");
     let mime_type = mime_for_path(&path);
     match path.metadata() {
