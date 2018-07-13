@@ -7,13 +7,14 @@ use mime_guess::guess_mime_type_opt;
 use router::response::extender::StaticResponseExtender;
 use state::{FromState, State, StateData};
 use std::convert::From;
-use std::fs;
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
-use tokio::fs::File;
 use tokio_fs;
+use tokio_fs::file::File;
+use tokio_fs::MetadataFuture;
 use tokio_io;
+use tokio_io::AsyncRead;
 
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
@@ -107,22 +108,19 @@ impl Handler for FileHandler {
 fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     println!("Sending async file!");
     let mime_type = mime_for_path(&path);
-    match path.metadata() {
-        Ok(meta) => {
-            let data_future = tokio_fs::file::File::open(path).and_then(move |file| {
-                let contents = Vec::with_capacity(meta.len() as usize);
-                tokio_io::io::read_to_end(file, contents).and_then(|item| Ok(item.1))
-            });
-            Box::new(data_future.then(move |result| match result {
-                Ok(data) => {
-                    let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
-                    Ok((state, res))
-                }
-                Err(err) => Err((state, err.into_handler_error())),
-            }))
+    let data_future = tokio_fs::file::File::open(path)
+        .and_then(|file| file.metadata())
+        .and_then(|(file, meta)| {
+            let contents = Vec::with_capacity(meta.len() as usize);
+            tokio_io::io::read_to_end(file, contents).and_then(|item| Ok(item.1))
+        });
+    Box::new(data_future.then(move |result| match result {
+        Ok(data) => {
+            let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
+            Ok((state, res))
         }
-        Err(err) => Box::new(future::err((state, err.into_handler_error()))),
-    }
+        Err(err) => Err((state, err.into_handler_error())),
+    }))
 }
 
 fn mime_for_path(path: &Path) -> Mime {

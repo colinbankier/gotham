@@ -21,8 +21,8 @@ mime = "0.3"
 mime_guess = "2.0.0-alpha.4"
 futures = "0.1"
 tokio = "0.1"
-tokio-fs = "0.1"
 tokio-io = "0.1"
+tokio-fs = "0.1"
 tokio-core = "0.1"
 mio = "0.6"
 borrow-bag = "1.0"
@@ -35,6 +35,11 @@ linked-hash-map = "0.5"
 num_cpus = "1.8"
 crossbeam = "0.3"
 regex = "1.0"
+
+[patch.crates-io]
+tokio = { git = "https://github.com/tokio-rs/tokio.git", branch = "master" }
+tokio-io = { git = "https://github.com/tokio-rs/tokio.git", branch = "master" }
+tokio-fs = { git = "https://github.com/tokio-rs/tokio.git", branch = "master" }
 
 [dev-dependencies]
 gotham_derive = { path = "../gotham_derive" }
