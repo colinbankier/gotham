@@ -1,22 +1,18 @@
-use futures::{future, Future};
+use futures::Future;
 use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
 use hyper;
+use hyper::StatusCode;
 use mime::{self, Mime};
 use mime_guess::guess_mime_type_opt;
 use router::response::extender::StaticResponseExtender;
 use state::{FromState, State, StateData};
 use std::convert::From;
-use std::io::{self, Read};
+use std::io;
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
 use tokio_fs;
-use tokio_fs::file::File;
-use tokio_fs::MetadataFuture;
 use tokio_io;
-use tokio_io::AsyncRead;
-
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
 /// Represents a handler for any files under the path `root`.
 #[derive(Clone)]
@@ -88,25 +84,10 @@ impl Handler for FileHandler {
     }
 }
 
-// fn create_file_response(path: PathBuf, state: &State) -> hyper::Response {
-//     path.metadata()
-//         .and_then(|meta| {
-//             let mut contents = Vec::with_capacity(meta.len() as usize);
-//             fs::File::open(&path).and_then(|mut f| f.read_to_end(&mut contents))?;
-//             Ok(contents)
-//         })
-//         .map(|contents| {
-//             let mime_type = mime_for_path(&path);
-//             create_response(state, hyper::StatusCode::Ok, Some((contents, mime_type)))
-//         })
-//         .unwrap_or_else(|err| error_response(state, err))
-// }
-
 // Serve a file by asynchronously reading it entirely into memory.
 // Uses tokio_fs to open file asynchronously, then tokio_io to read into
 // memory asynchronously.
 fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
-    println!("Sending async file!");
     let mime_type = mime_for_path(&path);
     let data_future = tokio_fs::file::File::open(path)
         .and_then(|file| file.metadata())
@@ -119,7 +100,10 @@ fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
             let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
             Ok((state, res))
         }
-        Err(err) => Err((state, err.into_handler_error())),
+        Err(err) => {
+            let status = error_status(&err);
+            Err((state, err.into_handler_error().with_status(status)))
+        }
     }))
 }
 
@@ -142,17 +126,12 @@ fn normalize_path(path: &Path) -> PathBuf {
         })
 }
 
-fn error_response(state: &State, e: io::Error) -> hyper::Response {
-    let status = match e.kind() {
+fn error_status(e: &io::Error) -> StatusCode {
+    match e.kind() {
         io::ErrorKind::NotFound => hyper::StatusCode::NotFound,
         io::ErrorKind::PermissionDenied => hyper::StatusCode::Forbidden,
         _ => hyper::StatusCode::InternalServerError,
-    };
-    create_response(
-        &state,
-        status,
-        Some((format!("{}", status).into_bytes(), mime::TEXT_PLAIN)),
-    )
+    }
 }
 
 /// Responsible for extracting the file path matched by the glob segment from the URL.
