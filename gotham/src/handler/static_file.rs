@@ -1,16 +1,18 @@
 use futures::Future;
 use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
-use hyper;
+use hyper::header::{ETag, EntityTag, LastModified};
+use hyper::Response;
 use hyper::StatusCode;
 use mime::{self, Mime};
 use mime_guess::guess_mime_type_opt;
 use router::response::extender::StaticResponseExtender;
 use state::{FromState, State, StateData};
 use std::convert::From;
-use std::io;
+use std::io::{self, Result};
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_fs;
 use tokio_io;
 
@@ -93,18 +95,42 @@ fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
         .and_then(|file| file.metadata())
         .and_then(|(file, meta)| {
             let contents = Vec::with_capacity(meta.len() as usize);
-            tokio_io::io::read_to_end(file, contents).and_then(|item| Ok(item.1))
+            tokio_io::io::read_to_end(file, contents)
+                .and_then(move |item| Ok((item.1, meta.modified())))
         });
     Box::new(data_future.then(move |result| match result {
-        Ok(data) => {
+        Ok((data, last_modified)) => {
+            let size = data.len();
             let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
-            Ok((state, res))
+            Ok((state, append_headers(res, last_modified, size)))
         }
         Err(err) => {
             let status = error_status(&err);
             Err((state, err.into_handler_error().with_status(status)))
         }
     }))
+}
+
+fn append_headers(
+    mut res: Response,
+    last_modified: io::Result<SystemTime>,
+    size: usize,
+) -> Response {
+    match last_modified {
+        Ok(modified) => {
+            res = res.with_header(LastModified(modified.into()));
+            match modified.duration_since(UNIX_EPOCH) {
+                Ok(dur) => res.with_header(ETag(EntityTag::weak(format!(
+                    "{0:x}-{1:x}.{2:x}",
+                    size,
+                    dur.as_secs(),
+                    dur.subsec_nanos()
+                )))),
+                _ => res,
+            }
+        }
+        _ => res,
+    }
 }
 
 fn mime_for_path(path: &Path) -> Mime {
@@ -128,9 +154,9 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 fn error_status(e: &io::Error) -> StatusCode {
     match e.kind() {
-        io::ErrorKind::NotFound => hyper::StatusCode::NotFound,
-        io::ErrorKind::PermissionDenied => hyper::StatusCode::Forbidden,
-        _ => hyper::StatusCode::InternalServerError,
+        io::ErrorKind::NotFound => StatusCode::NotFound,
+        io::ErrorKind::PermissionDenied => StatusCode::Forbidden,
+        _ => StatusCode::InternalServerError,
     }
 }
 
@@ -144,14 +170,14 @@ pub struct FilePathExtractor {
 impl StateData for FilePathExtractor {}
 
 impl StaticResponseExtender for FilePathExtractor {
-    fn extend(state: &mut State, res: &mut hyper::Response) {
-        extend_response(state, res, ::hyper::StatusCode::BadRequest, None);
+    fn extend(state: &mut State, res: &mut Response) {
+        extend_response(state, res, StatusCode::BadRequest, None);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use hyper::header::ContentType;
+    use hyper::header::{ContentType, ETag, LastModified};
     use hyper::StatusCode;
     use mime;
     use router::builder::{build_simple_router, DefineSingleRoute, DrawRoutes};
@@ -241,6 +267,8 @@ mod tests {
             response.headers().get::<ContentType>().unwrap(),
             &ContentType::html()
         );
+        assert!(response.headers().get::<LastModified>().is_some());
+        assert!(response.headers().get::<ETag>().is_some());
 
         let body = response.read_body().unwrap();
         assert_eq!(&body[..], b"<html>I am a doc.</html>");
