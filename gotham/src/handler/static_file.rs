@@ -2,7 +2,9 @@ use futures::future::{self, Either};
 use futures::Future;
 use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
-use hyper::header::{ETag, EntityTag, LastModified};
+use hyper::header::{
+    ETag, EntityTag, Headers, HttpDate, IfModifiedSince, IfNoneMatch, LastModified,
+};
 use hyper::Response;
 use hyper::StatusCode;
 use mime::{self, Mime};
@@ -14,7 +16,7 @@ use std::fs::Metadata;
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use tokio_fs;
 use tokio_io;
 
@@ -90,7 +92,7 @@ impl Handler for FileHandler {
 
 enum FileResult {
     NotModified,
-    Contents(Vec<u8>, io::Result<SystemTime>),
+    Contents(Vec<u8>, Metadata),
 }
 
 // Serve a file by asynchronously reading it entirely into memory.
@@ -98,25 +100,25 @@ enum FileResult {
 // memory asynchronously.
 fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     let mime_type = mime_for_path(&path);
-    let some_tag = "foo".to_string();
+    let (if_none_match, if_modified_since) = extract_headers(&state);
+
     let data_future = tokio_fs::file::File::open(path)
         .and_then(|file| file.metadata())
         .and_then(move |(file, meta)| {
-            let contents = Vec::with_capacity(meta.len() as usize);
-            if not_modified(&meta, &some_tag) {
+            if not_modified(&meta, if_none_match, if_modified_since) {
                 Either::A(future::ok(FileResult::NotModified))
             } else {
+                let contents = Vec::with_capacity(meta.len() as usize);
                 Either::B(
                     tokio_io::io::read_to_end(file, contents)
-                        .and_then(move |item| Ok(FileResult::Contents(item.1, meta.modified()))),
+                        .and_then(move |item| Ok(FileResult::Contents(item.1, meta))),
                 )
             }
         });
     Box::new(data_future.then(move |result| match result {
-        Ok(FileResult::Contents(data, last_modified)) => {
-            let size = data.len();
+        Ok(FileResult::Contents(data, metadata)) => {
             let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
-            Ok((state, append_headers(res, last_modified, size)))
+            Ok((state, append_headers(res, &metadata)))
         }
         Ok(FileResult::NotModified) => {
             let res = create_response(&state, StatusCode::NotModified, None);
@@ -129,28 +131,53 @@ fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     }))
 }
 
-fn not_modified(metadata: &Metadata, tag: &String) -> bool {
-    true
+fn extract_headers(state: &State) -> (Option<IfNoneMatch>, Option<IfModifiedSince>) {
+    let headers: &Headers = Headers::borrow_from(&state);
+    let if_none_match = headers.get::<IfNoneMatch>().map(|h| h.clone());
+    let if_modified_since = headers.get::<IfModifiedSince>().map(|h| h.clone());
+    (if_none_match, if_modified_since)
 }
 
-fn append_headers(
-    mut res: Response,
-    last_modified: io::Result<SystemTime>,
-    size: usize,
-) -> Response {
-    match last_modified {
-        Ok(modified) => {
-            res = res.with_header(LastModified(modified.into()));
-            match modified.duration_since(UNIX_EPOCH) {
-                Ok(dur) => res.with_header(ETag(EntityTag::weak(format!(
-                    "{0:x}-{1:x}.{2:x}",
-                    size,
-                    dur.as_secs(),
-                    dur.subsec_nanos()
-                )))),
-                _ => res,
-            }
-        }
+fn not_modified(
+    metadata: &Metadata,
+    if_none_match: Option<IfNoneMatch>,
+    if_modified_since: Option<IfModifiedSince>,
+) -> bool {
+    // If-None-Match header takes precedence over If-Modified-Since
+    if let Some(IfNoneMatch::Items(items)) = if_none_match {
+        entity_tag(&metadata)
+            .map(|etag| items.contains(&etag))
+            .unwrap_or(false)
+    } else if let Some(IfModifiedSince(http_date)) = if_modified_since {
+        metadata
+            .modified()
+            .map(|modified| HttpDate::from(modified) <= http_date.into())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+fn entity_tag(metadata: &Metadata) -> Option<EntityTag> {
+    metadata.modified().ok().and_then(|modified| {
+        modified.duration_since(UNIX_EPOCH).ok().map(|duration| {
+            EntityTag::weak(format!(
+                "{0:x}-{1:x}.{2:x}",
+                metadata.len(),
+                duration.as_secs(),
+                duration.subsec_nanos()
+            ))
+        })
+    })
+}
+
+fn append_headers(res: Response, metadata: &Metadata) -> Response {
+    let res = match entity_tag(metadata) {
+        Some(tag) => res.with_header(ETag(tag)),
+        _ => res,
+    };
+    match metadata.modified() {
+        Ok(modified) => res.with_header(LastModified(modified.into())),
         _ => res,
     }
 }
