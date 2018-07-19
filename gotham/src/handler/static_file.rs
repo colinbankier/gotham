@@ -1,3 +1,4 @@
+use futures::future::{self, Either};
 use futures::Future;
 use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
@@ -9,7 +10,8 @@ use mime_guess::guess_mime_type_opt;
 use router::response::extender::StaticResponseExtender;
 use state::{FromState, State, StateData};
 use std::convert::From;
-use std::io::{self, Result};
+use std::fs::Metadata;
+use std::io;
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -86,29 +88,49 @@ impl Handler for FileHandler {
     }
 }
 
+enum FileResult {
+    NotModified,
+    Contents(Vec<u8>, io::Result<SystemTime>),
+}
+
 // Serve a file by asynchronously reading it entirely into memory.
 // Uses tokio_fs to open file asynchronously, then tokio_io to read into
 // memory asynchronously.
 fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     let mime_type = mime_for_path(&path);
+    let some_tag = "foo".to_string();
     let data_future = tokio_fs::file::File::open(path)
         .and_then(|file| file.metadata())
-        .and_then(|(file, meta)| {
+        .and_then(move |(file, meta)| {
             let contents = Vec::with_capacity(meta.len() as usize);
-            tokio_io::io::read_to_end(file, contents)
-                .and_then(move |item| Ok((item.1, meta.modified())))
+            if not_modified(&meta, &some_tag) {
+                Either::A(future::ok(FileResult::NotModified))
+            } else {
+                Either::B(
+                    tokio_io::io::read_to_end(file, contents)
+                        .and_then(move |item| Ok(FileResult::Contents(item.1, meta.modified()))),
+                )
+            }
         });
     Box::new(data_future.then(move |result| match result {
-        Ok((data, last_modified)) => {
+        Ok(FileResult::Contents(data, last_modified)) => {
             let size = data.len();
             let res = create_response(&state, StatusCode::Ok, Some((data, mime_type)));
             Ok((state, append_headers(res, last_modified, size)))
+        }
+        Ok(FileResult::NotModified) => {
+            let res = create_response(&state, StatusCode::NotModified, None);
+            Ok((state, res))
         }
         Err(err) => {
             let status = error_status(&err);
             Err((state, err.into_handler_error().with_status(status)))
         }
     }))
+}
+
+fn not_modified(metadata: &Metadata, tag: &String) -> bool {
+    true
 }
 
 fn append_headers(
