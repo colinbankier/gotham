@@ -148,10 +148,10 @@ fn not_modified(
         entity_tag(&metadata)
             .map(|etag| items.contains(&etag))
             .unwrap_or(false)
-    } else if let Some(IfModifiedSince(http_date)) = if_modified_since {
+    } else if let Some(IfModifiedSince(if_modified_time)) = if_modified_since {
         metadata
             .modified()
-            .map(|modified| HttpDate::from(modified) <= http_date.into())
+            .map(|modified| HttpDate::from(modified) <= if_modified_time)
             .unwrap_or(false)
     } else {
         false
@@ -226,12 +226,13 @@ impl StaticResponseExtender for FilePathExtractor {
 
 #[cfg(test)]
 mod tests {
-    use hyper::header::{ContentType, ETag, LastModified};
+    use hyper::header::{ContentType, ETag, HttpDate, IfModifiedSince, IfNoneMatch, LastModified};
     use hyper::StatusCode;
     use mime;
     use router::builder::{build_simple_router, DefineSingleRoute, DrawRoutes};
     use router::Router;
     use std::str;
+    use std::time::SystemTime;
     use test::TestServer;
 
     #[test]
@@ -321,6 +322,36 @@ mod tests {
 
         let body = response.read_body().unwrap();
         assert_eq!(&body[..], b"<html>I am a doc.</html>");
+    }
+
+    #[test]
+    fn static_if_modified_since() {
+        let response = test_server()
+            .client()
+            .get("http://localhost/doc.html")
+            .with_header(IfModifiedSince(SystemTime::now().into()))
+            .perform()
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NotModified);
+    }
+
+    #[test]
+    fn static_if_none_match() {
+        let response = test_server()
+            .client()
+            .get("http://localhost/doc.html")
+            .perform()
+            .unwrap();
+        let ETag(etag) = response.headers().get::<ETag>().unwrap();
+
+        let next_response = test_server()
+            .client()
+            .get("http://localhost/doc.html")
+            .with_header(IfNoneMatch::Items(vec![etag.clone()]))
+            .perform()
+            .unwrap();
+        assert_eq!(next_response.status(), StatusCode::NotModified);
     }
 
     fn test_server() -> TestServer {
