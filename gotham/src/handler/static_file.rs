@@ -3,7 +3,8 @@ use futures::Future;
 use handler::{Handler, HandlerFuture, IntoHandlerError, NewHandler};
 use helpers::http::response::{create_response, extend_response};
 use hyper::header::{
-    ETag, EntityTag, Headers, HttpDate, IfModifiedSince, IfNoneMatch, LastModified,
+    AcceptEncoding, ETag, Encoding, EntityTag, Headers, HttpDate, IfModifiedSince, IfNoneMatch,
+    LastModified, QualityItem,
 };
 use hyper::Response;
 use hyper::StatusCode;
@@ -99,8 +100,11 @@ enum FileResult {
 // Uses tokio_fs to open file asynchronously, then tokio_io to read into
 // memory asynchronously.
 fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
-    let mime_type = mime_for_path(&path);
-    let (if_none_match, if_modified_since) = extract_headers(&state);
+    let (if_none_match, if_modified_since, accept_encoding) = extract_headers(&state);
+
+    // be sure to check content type remains, and set content-encoding
+    let file_path = check_compressed_files(accept_encoding);
+    let mime_type = mime_for_path(&file_path);
 
     let data_future = tokio_fs::file::File::open(path)
         .and_then(|file| file.metadata())
@@ -131,11 +135,50 @@ fn create_file_response(path: PathBuf, state: State) -> Box<HandlerFuture> {
     }))
 }
 
-fn extract_headers(state: &State) -> (Option<IfNoneMatch>, Option<IfModifiedSince>) {
+fn check_compressed_files(
+    path: PathBuf,
+    accept: Option<AcceptEncoding>,
+) -> Option<(PathBuf, Encoding)> {
+    match accept {
+        Some(AcceptEncoding(items)) => {
+            let supported_encodings = vec![Encoding::Gzip, Encoding::Brotli];
+            let accept_items: Vec<&QualityItem<Encoding>> = items
+                .iter()
+                .filter(|e| supported_encodings.contains(&e.item))
+                .collect();
+            accept_items.sort_by_key(|i| i.quality);
+            accept_items
+                .iter()
+                .filter_map(|i| match encoding_extension(i.item) {
+                    Some(ext) => Some((path.with_extension(ext), i.item)),
+                    _ => None,
+                })
+                .filter(|(path, encoding)| Path.exists(path))
+                .take(1)
+        }
+    }
+}
+
+fn encoding_extension(encoding: &Encoding) -> Option<String> {
+    match encoding {
+        Encoding::Gzip => Some(".gz".to_string()),
+        Encoding::Brotli => Some(".br".to_string()),
+        _ => None,
+    }
+}
+
+fn extract_headers(
+    state: &State,
+) -> (
+    Option<IfNoneMatch>,
+    Option<IfModifiedSince>,
+    Option<AcceptEncoding>,
+) {
     let headers: &Headers = Headers::borrow_from(&state);
     let if_none_match = headers.get::<IfNoneMatch>().map(|h| h.clone());
     let if_modified_since = headers.get::<IfModifiedSince>().map(|h| h.clone());
-    (if_none_match, if_modified_since)
+    let accept_encoding = headers.get::<AcceptEncoding>().map(|h| h.clone());
+    (if_none_match, if_modified_since, accept_encoding)
 }
 
 fn not_modified(
