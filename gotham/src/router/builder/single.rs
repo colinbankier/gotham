@@ -2,6 +2,7 @@ use std::panic::RefUnwindSafe;
 use std::path::{Path, PathBuf};
 
 use extractor::{PathExtractor, QueryStringExtractor};
+use handler::static_file::{FileHandler, FilePathExtractor, FileSystemHandler};
 use handler::{Handler, NewHandler};
 use hyper::Body;
 use pipeline::chain::PipelineHandleChain;
@@ -14,7 +15,6 @@ use router::route::{Delegation, Extractors, RouteImpl};
 
 // Temporary
 use handler::static_file::StaticFileHandler;
-use handler::static_file::{FileHandler, FilePathExtractor, FileSystemHandler};
 use handler::static_file::{FilePathExtractor, StaticFileHandler};
 use handler::{Handler, NewHandler};
 use http::response::create_response;
