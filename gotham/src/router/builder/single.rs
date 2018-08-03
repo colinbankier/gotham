@@ -13,15 +13,6 @@ use router::route::dispatch::DispatcherImpl;
 use router::route::matcher::RouteMatcher;
 use router::route::{Delegation, Extractors, RouteImpl};
 
-// Temporary
-use handler::static_file::StaticFileHandler;
-use handler::static_file::{FilePathExtractor, StaticFileHandler};
-use handler::{Handler, NewHandler};
-use http::response::create_response;
-use hyper::{Response, StatusCode};
-use mime;
-use state::State;
-
 /// Describes the API for defining a single route, after determining which request paths will be
 /// dispatched here. The API here uses chained function calls to build and add the route into the
 /// `RouterBuilder` which created it.
