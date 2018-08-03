@@ -32,10 +32,14 @@ extern crate rand;
 extern crate regex;
 #[macro_use]
 extern crate serde;
+extern crate http_serve;
 extern crate tokio;
 extern crate tokio_core;
 extern crate url;
 extern crate uuid;
+#[macro_use]
+extern crate lazy_static;
+extern crate futures_cpupool;
 
 #[macro_use]
 extern crate serde_derive;

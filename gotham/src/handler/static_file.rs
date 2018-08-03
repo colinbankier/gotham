@@ -6,13 +6,21 @@ use mime_guess::guess_mime_type_opt;
 use router::response::extender::StaticResponseExtender;
 use state::{FromState, State, StateData};
 use std::convert::From;
-use std::fs;
+use std::fs::File;
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::path::{Component, Path, PathBuf};
 
 use futures::future;
+use futures_cpupool::{CpuFuture, CpuPool};
 use handler::{Handler, HandlerFuture, NewHandler};
+use http::{request::Parts, HeaderMap, Request};
+use http::{Method, Uri, Version};
+use http_serve::{self, ChunkedReadFile};
+
+lazy_static! {
+    static ref STATIC_FILE_CPU_POOL: CpuPool = CpuPool::new(4);
+}
 
 /// Represents a handler for any files under the path `root`.
 #[derive(Clone)]
@@ -87,17 +95,45 @@ impl Handler for FileHandler {
 }
 
 fn create_file_response(path: PathBuf, state: &State) -> Response<Body> {
-    path.metadata()
-        .and_then(|meta| {
-            let mut contents = Vec::with_capacity(meta.len() as usize);
-            fs::File::open(&path).and_then(|mut f| f.read_to_end(&mut contents))?;
-            Ok(contents)
-        })
-        .map(|contents| {
-            let mime_type = mime_for_path(&path);
-            create_response(state, StatusCode::OK, Some((contents, mime_type)))
+    // path.metadata()
+    //     .and_then(|meta| {
+    //         let mut contents = Vec::with_capacity(meta.len() as usize);
+    //         fs::File::open(&path).and_then(|mut f| f.read_to_end(&mut contents))?;
+
+    //         Ok(contents)
+    //     })
+    //     .map(|contents| {
+    //         let mime_type = mime_for_path(&path);
+    //         create_response(state, StatusCode::OK, Some((contents, mime_type)))
+    //     })
+    //     .unwrap_or_else(|err| error_response(state, err))
+
+    File::open(&path)
+        .and_then(|file| {
+            let headers = HeaderMap::new();
+            let stream = ChunkedReadFile::new(file, Some(STATIC_FILE_CPU_POOL.clone()), headers)?;
+            let req = state_as_request(state);
+            Ok(http_serve::serve(stream, &req))
         })
         .unwrap_or_else(|err| error_response(state, err))
+}
+
+// Temporary hack for investigation
+fn state_as_request(state: &State) -> Request<Body> {
+    let mut request = Request::builder()
+        .method(Method::borrow_from(&state).clone())
+        .uri(Uri::borrow_from(&state))
+        .version(Version::borrow_from(&state).clone())
+        .body(Body::empty())
+        .unwrap();
+
+    {
+        let headers = request.headers_mut();
+        for (key, value) in HeaderMap::borrow_from(&state).iter() {
+            headers.insert(key, value.clone());
+        }
+    }
+    request
 }
 
 fn mime_for_path(path: &Path) -> Mime {
